@@ -16,12 +16,6 @@ def resolve_aws_account(
         if region:
             account.region = region
 
-    if not account.access_key:
-        raise AccountError("No access key, please specify one")
-
-    if not account.secret_key:
-        raise AccountError("No secret key, please specify one")
-
     return account
 
 
@@ -37,7 +31,7 @@ def get_account_from_profile(profile):
         return AWSAccount(access_key, secret_key, session_token, region)
 
     except ProfileNotFound:
-        raise AccountError("Profile '{}' cannot be found".format(profile))
+        raise AccountError()
 
 
 class AccountError(Exception):
@@ -51,3 +45,16 @@ class AWSAccount:
         self.secret_key = secret_key
         self.session_token = session_token
         self.region = region
+        self.session = self.get_session()
+        self.name = self.get_name()
+
+    def get_session(self):
+        session = boto3.Session(
+            aws_access_key_id=self.access_key,
+            aws_secret_access_key=self.secret_key,
+        )
+        return session
+
+    def get_name(self):
+        response = self.session.client("sts").get_caller_identity()
+        return response["Arn"].split('/')[-1]

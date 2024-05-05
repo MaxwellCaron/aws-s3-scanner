@@ -33,30 +33,25 @@ def parse_args():
 
     parser.add_argument(
         "--bucket",
+        required=True,
         help="Name of bucket to enumerate."
     )
 
     parser.add_argument(
         "--no-anon",
-        action="store_false",
+        action="store_true",
         help="Only uses authenticated credentials for scan."
     )
 
     parser.add_argument(
-        "--no-auth",
-        action="store_false",
-        help="Does not use any credentials for scan."
-    )
-
-    parser.add_argument(
         "--no-border",
-        action="store_false",
+        action="store_true",
         help="Removes pretty bordering for easy copy and paste."
     )
 
     parser.add_argument(
-        "--only-ls",
-        action="store_false",
+        "--ls",
+        action="store_true",
         help="Only attempts to list files and prompt user for download."
     )
 

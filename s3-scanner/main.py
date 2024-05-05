@@ -1,18 +1,20 @@
+import argparse
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, wait
 
-from humanize import naturalsize
 import botocore.exceptions
-from boto3 import Session, client
+from boto3 import client
 from botocore import UNSIGNED
 from botocore.client import Config, BaseClient
+from humanize import naturalsize
 
-from format import *
 import args as argsmod
 import awsaccount
+from format import *
 
 
-class File:
+class File():
 
     def __init__(self, _client: BaseClient, bucket: str, file_info: dict) -> None:
         """
@@ -33,6 +35,7 @@ class File:
         self.type: str = self.get_type()
         self.name: str = self.get_name()
         self.is_readable: str = ' x' if self.is_file_readable() else ''
+        self.directory: str = self.__bucket + '/' + '/'.join(self.key.split('/')[:-1])
 
     def get_type(self) -> str:
         """
@@ -96,13 +99,11 @@ def error_handler(func):
         except botocore.exceptions.ClientError as e:
             response_code = e.response['Error']['Code']
             if response_code == 'NoSuchWebsiteConfiguration':
-                print_data('No Website Configured')
+                formatmod.print_data('No Website Configured')
             elif response_code == 'AccessDenied' or response_code == 'MethodNotAllowed':
-                print_error('Access Denied', border=True)
+                formatmod.print_error('Access Denied', border=True)
             else:
-                print(e.response)
-        except PermissionError:
-            print_error('This program does not have the permissions to write a file here.')
+                formatmod.print_error('\n' + e.response['Error']['Message'])
         except KeyboardInterrupt:
             pass
 
@@ -112,17 +113,6 @@ def error_handler(func):
 ###########################################
 # -----------) AWS Commands (-------------#
 ###########################################
-
-def get_caller_identity(session: Session) -> str:
-    """
-    Execute get_caller_identity to retrieve user information.
-
-    :param session: Session object
-    :return: Username
-    """
-    response = session.client("sts").get_caller_identity()
-    return response["Arn"].split('/')[-1]
-
 
 def bucket_exists(_client: BaseClient, bucket_name: str) -> bool:
     """
@@ -154,14 +144,14 @@ def list_object_versions(_client: BaseClient, bucket_name: str) -> None:
     """
     response = _client.list_object_versions(Bucket=bucket_name)
     old_versions = [version for version in response['Versions'] if version['IsLatest'] is False]
-    print_info('Found {} non-latest versions'.format(len(old_versions)))
+    formatmod.print_info('Found {} non-latest versions'.format(len(old_versions)))
 
     for file in old_versions:
-        print_title2('{} ({})'.format(file['Key'], file['VersionId']))
+        formatmod.print_title2('{} ({})'.format(file['Key'], file['VersionId']))
 
         file_extension = file['Key'].split('.')[-1].lower()
         if file_extension not in BLACKLISTED_EXTENSIONS:
-            print_title3('get-object')
+            formatmod.print_title3('get-object')
             get_object(_client, bucket_name, file['Key'], file['VersionId'])
 
 
@@ -179,7 +169,7 @@ def get_object(_client: BaseClient, bucket_name: str, key: str, version_id: str)
     try:
         file_contents = response['Body'].read().decode('utf-8')
         if file_contents:
-            print_data(file_contents)
+            formatmod.print_data(file_contents)
     except UnicodeDecodeError:
         pass
 
@@ -196,7 +186,7 @@ def get_bucket_acl(_client: BaseClient, bucket_name: str) -> None:
     grants = response['Grants']
 
     for grant in grants:
-        print_data(grant)
+        formatmod.print_data(grant)
 
 
 @error_handler
@@ -212,7 +202,7 @@ def get_bucket_policy(_client: BaseClient, bucket_name: str) -> None:
     statements = parsed_policy['Statement']
 
     for statement in statements:
-        print_data(statement)
+        formatmod.print_data(statement)
 
 
 @error_handler
@@ -227,7 +217,7 @@ def get_bucket_tagging(_client: BaseClient, bucket_name: str) -> None:
     tags = response['TagSet']
 
     for tag in tags:
-        print_data(tag)
+        formatmod.print_data(tag)
 
 
 @error_handler
@@ -239,13 +229,12 @@ def get_bucket_website(_client: BaseClient, bucket_name: str) -> None:
     :param bucket_name: Name of target bucket
     """
     response = _client.get_bucket_website(Bucket=bucket_name)
-    print_data(response)
+    formatmod.print_data(response)
 
 
 ###########################################
 # -------) ls + file download (----------#
 ###########################################
-
 
 @error_handler
 def ls(_client: BaseClient, bucket_name: str) -> None:
@@ -257,19 +246,28 @@ def ls(_client: BaseClient, bucket_name: str) -> None:
     """
     response = _client.list_objects_v2(Bucket=bucket_name)
     files = response['Contents']
+    pool = ThreadPoolExecutor(max_workers=10)
+    threads = []
     readable_files = []
 
-    print_info('Found {} objects in {}\n[cyan]║[/cyan]'.format(len(files), bucket_name))
-    print_file_headers()
+    formatmod.print_info(f'Found {len(files)} objects in {bucket_name}')
+    formatmod.print_file_headers()
 
     for file_data in files:
-        file = File(_client, bucket_name, file_data)
+        t = pool.submit(File, _client, bucket_name, file_data)
+        threads.append(t)
+
+    wait(threads, return_when='ALL_COMPLETED')
+
+    for t in threads:
+        file = t.result()
         if file.is_readable:
             readable_files.append(file)
-        print_file(file)
+        formatmod.print_file(file)
 
-    readable_dict = get_completions(readable_files)
-    download(_client, bucket_name, readable_dict)
+    if readable_files:
+        readable_dict = get_completions(readable_files)
+        download(_client, bucket_name, readable_dict)
 
 
 def get_completions(files: list[File]) -> dict:
@@ -280,21 +278,16 @@ def get_completions(files: list[File]) -> dict:
     :return: Dictionary to be used for prompt auto-completion
     """
     completions = {'*': ''}
-    directories = []
 
-    # Add all directories
+    # Add directories
     for file in files:
         directory = os.path.dirname(file.key)
         while directory:
-            if directory not in directories:
-                directories.append(directory)
+            if directory not in completions.keys():
+                completions[directory + '/*'] = ''
             directory = os.path.dirname(directory)
 
-    # Add wildcard to each directory
-    for directory in directories:
-        completions[directory + '/*'] = ''
-
-    # Add all printable names
+    # Add printable names
     for file in files:
         if file.printable_name:
             completions[file.printable_name] = file
@@ -312,14 +305,14 @@ def download(_client: BaseClient, bucket_name: str, readable_dict: dict) -> None
     """
     readable_file_objs = [file_obj for file_obj in readable_dict.values() if file_obj]
     user_input = download_prompt(list(readable_dict.keys()))
+    to_download = []
 
     while user_input:
 
-        # SOLO WILDCARD: download all files | stops asking for user input since all files are already downloaded
+        # SOLO WILDCARD: download all files
         if '*' in user_input:
-            for file in readable_file_objs:
-                download_file(_client, bucket_name, file)
-            break
+            to_download = readable_file_objs
+            user_input.clear()
 
         # WILDCARD ANYWHERE IN ARG: download all files that match supplied pattern
         elif has_wildcard(user_input):
@@ -332,10 +325,10 @@ def download(_client: BaseClient, bucket_name: str, readable_dict: dict) -> None
                 for file in readable_file_objs:
                     if re.search(pattern, file.key):
                         any_match = True
-                        download_file(_client, bucket_name, file)
+                        to_download.append(file)
 
                 if not any_match:
-                    print_error(f'No files match the pattern "{arg}"')
+                    formatmod.print_error(f'No files match the pattern "{arg}"')
 
                 user_input.remove(arg)
 
@@ -343,12 +336,50 @@ def download(_client: BaseClient, bucket_name: str, readable_dict: dict) -> None
         for file_printable in user_input:
             try:
                 file = readable_dict[file_printable]
-                download_file(_client, bucket_name, file)
+                to_download.append(file)
             except KeyError:
-                print_error(f"{file_printable} not found.")
+                formatmod.print_error(f"{file_printable} not found.")
                 pass
 
+        for file in to_download:
+            if not directory_exists(file.directory):
+                create_directory(file.directory)
+
+            download_file(_client, bucket_name, file)
+
         user_input = download_prompt(list(readable_dict.keys()))
+
+
+def directory_exists(directory_name: str) -> bool:
+    """
+    Check if a directory exists in the current directory.
+
+    :param directory_name: The name of the directory to check
+    :return: True if the directory exists, False otherwise
+    """
+    current_directory = os.getcwd()
+    directory_path = os.path.join(current_directory, directory_name)
+    return os.path.isdir(directory_path)
+
+
+def create_directory(directory_name: str) -> str | None:
+    """
+    Create a directory in the current directory.
+
+    :param directory_name: The name of the directory to create
+    :return: The path of the created directory, None otherwise
+    """
+    current_directory = os.getcwd()
+    directory_path = os.path.join(current_directory, directory_name)
+
+    try:
+        os.makedirs(directory_path)
+        return directory_path
+    except FileExistsError:
+        return
+    except PermissionError:
+        formatmod.print_error('This program does not have the permissions to write a file here.')
+        exit()
 
 
 def download_file(_client: BaseClient, bucket_name: str, file: File) -> None:
@@ -368,13 +399,26 @@ def download_file(_client: BaseClient, bucket_name: str, file: File) -> None:
     def progress_bar_callback(bytes_amount):
         progress_bar.update(download_task, advance=bytes_amount)
 
-    _client.download_file(bucket_name, file.key, file.printable_name, Callback=progress_bar_callback)
+    out_file = f'{file.directory}/{file.printable_name}'
+    _client.download_file(bucket_name, file.key, output_directory(out_file), Callback=progress_bar_callback)
 
     with progress_bar:
         while not progress_bar.finished:
             progress_bar.update(download_task)
 
     progress_bar.stop()
+
+
+def output_directory(file_path: str) -> bool:
+    """
+    Check if a directory exists in the current directory.
+
+    :param directory_name: The name of the directory to check
+    :return: True if the directory exists, False otherwise
+    """
+    current_directory = os.getcwd()
+    directory_path = os.path.join(current_directory, file_path)
+    return directory_path
 
 
 def has_wildcard(arguments: list[str]) -> bool:
@@ -395,7 +439,13 @@ def has_wildcard(arguments: list[str]) -> bool:
 ###########################################
 
 
-def authenticated_client(args) -> tuple[BaseClient, str] | None:
+def authenticated_account(args: argparse.Namespace) -> awsaccount.AWSAccount | None:
+    """
+    Attempts to resolve an AWS account.
+
+    @param args: Arguments
+    @return: AWSAccount object if valid account, None otherwise
+    """
     try:
         account = awsaccount.resolve_aws_account(
             args.profile,
@@ -404,26 +454,19 @@ def authenticated_client(args) -> tuple[BaseClient, str] | None:
             session_token=args.session_token,
             region=args.region,
         )
-    except awsaccount.AccountError as e:
-        print_error(f"Error: {e}")
+    except awsaccount.AccountError:
         return
 
-    session = Session(
-        aws_access_key_id=account.access_key,
-        aws_secret_access_key=account.secret_key,
-    )
-    user_name = get_caller_identity(session)
-    _authenticated_client = session.client('s3')
-
-    return _authenticated_client, user_name
+    return account
 
 
-def enum(_client: BaseClient, bucket_name: str) -> None:
+def enum(_client: BaseClient, bucket_name: str, args: argparse.Namespace) -> None:
     """
     Runs all enumeration functions against a specified bucket.
 
     :param _client: S3 client
     :param bucket_name: Name of target bucket
+    :param args: Arguments
     """
     functions = [
         (list_object_versions, 'list-object-versions'),
@@ -434,28 +477,34 @@ def enum(_client: BaseClient, bucket_name: str) -> None:
         (ls, 'ls')
     ]
 
+    if args.ls:
+        functions = [(ls, 'ls')]
+
     for func, title in functions:
-        print_title1(title)
+        formatmod.print_title1(title)
         func(_client, bucket_name)
 
 
-@error_handler
-def main() -> None:
-    args = argsmod.parse_args()
+def main(args: argparse.Namespace) -> None:
     bucket_name = args.bucket
     unauthenticated_client = client('s3', config=Config(signature_version=UNSIGNED))
 
     if bucket_exists(unauthenticated_client, bucket_name):
-        print_title('Unauthenticated')
-        enum(unauthenticated_client, bucket_name)
+        if not args.no_anon:
+            formatmod.print_title('Unauthenticated')
+            enum(unauthenticated_client, bucket_name, args)
 
-        auth_client, user_name = authenticated_client(args)
-        if auth_client:
-            print_title(user_name)
-            enum(auth_client, bucket_name)
+        auth_account = authenticated_account(args)
+        if auth_account:
+            formatmod.print_title(auth_account.name)
+            enum(auth_account.session.client('s3'), bucket_name, args)
+
     else:
-        print_error('S3 bucket cannot be found')
+        formatmod.print_error('S3 bucket cannot be found')
 
 
 if __name__ == '__main__':
-    main()
+    args = argsmod.parse_args()
+    border = not args.no_border
+    formatmod = Format(border=border)
+    main(args)

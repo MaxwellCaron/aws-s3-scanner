@@ -21,7 +21,6 @@ BLACKLISTED_EXTENSIONS = [
     "xpm", "xwd", "mp4", "mpeg", "m1v", "mpa", "mpe", "mpg", "mov", "qt",
     "webm", "avi", "movie", "mkv", "exe", "dll",
 ]
-LS_STRING = '[cyan]║[/cyan] {:<11} {:<15} {:<6} {:<4}  {}'
 
 
 class MyCompleter(Completer):
@@ -84,59 +83,68 @@ def get_progress_bar() -> Progress:
     return progress
 
 
-def print_title(text: str) -> None:
-    title_len = len(text)
-    max_title_len = 100
-    side_len = int((max_title_len - title_len) / 2)
+class Format:
+    BORDER_FORMAT = "[cyan]║[/cyan] {}"
 
-    left = f'[cyan]{"═" * side_len}╣'
-    right = f'[cyan]╠{"═" * side_len}'
+    def __init__(self, border: bool):
+        self.__ls_string = self.BORDER_FORMAT.format(
+            "{:<11} {:<15} {:<6} {:<4}  {}") if border else "{:<11} {:<15} {:<6} {:<4}  {}"
+        self.border = border
 
-    top = f'[cyan]{" " * (len(left) - 7)}╔{"═" * (len(text) + 2)}╗\n'
-    bottom = f'\n[cyan]{" " * (len(left) - 7)}╚{"═" * (len(text) + 2)}╝'
+    @staticmethod
+    def print_title(text: str) -> None:
+        length = 130
+        top = f'[cyan]╔{"═" * (len(text) + 2)}╗'
+        middle = f'[cyan]╣ [bold green]{text} [cyan]╠'
+        bottom = f'[cyan]╚{"═" * (len(text) + 2)}╝'
+        console.print(f'\n{top: ^{length - 18}}\n{middle:═^{length}}\n{bottom: ^{length - 18}}')
 
-    console.print(f'\n{top}{left} [bold green]{text}[/bold green] {right}{bottom}')
+    @staticmethod
+    def print_title1(text: str) -> None:
+        console.print(f'\n[cyan]╔══════════╣ [bold magenta]{text}', highlight=False)
 
+    def print_title2(self, text: str) -> None:
+        if self.border:
+            console.print(f'[cyan]║\n╠═════╣ [yellow]{text}', highlight=False)
+        else:
+            console.print(f'\n[cyan]═════╣ [yellow]{text}', highlight=False)
 
-def print_title1(text: str) -> None:
-    console.print(f'\n[cyan]╔══════════╣ [bold magenta]{text}')
+    def print_title3(self, text: str) -> None:
+        if self.border:
+            console.print(f'[cyan]║\n╠══╣ [grey62]{text}', highlight=False)
+        else:
+            console.print(f'[cyan]══╣ [grey62]{text}', highlight=False)
 
+    def print_info(self, text: str) -> None:
+        if self.border:
+            console.print(f'[cyan]║\n║ [yellow][+] [green]{text}\n[cyan]║[/cyan]')
+        else:
+            console.print(f'\n[yellow][+] [green]{text}\n')
 
-def print_title2(text: str) -> None:
-    console.print(f'[cyan]║\n╠═════╣ [yellow]{text}')
+    def print_data(self, data: str | dict) -> None:
+        if isinstance(data, dict):
+            data = json.dumps(data, indent=4, default=str)
+        if self.border:
+            formatted_data = "\n".join([self.BORDER_FORMAT.format(line) for line in data.split("\n")])
+            console.print(formatted_data, highlight=False)
+        else:
+            console.print(data, highlight=False)
 
+    def print_error(self, error: str, border: bool = False) -> None:
+        if self.border and border:
+            formatted_error = self.BORDER_FORMAT.format(f'[red]{error}')
+            console.print(formatted_error)
+        else:
+            console.print(f'[red]{error}')
 
-def print_title3(text: str) -> None:
-    console.print(f'[cyan]║\n╠══╣ [grey62]{text}')
+    def print_file_headers(self) -> None:
+        console.print(self.__ls_string.format("Size", "Last Modified", "Type", "Read", "File Name"))
 
-
-def print_info(text: str, border: bool = True) -> None:
-    console.print(f'[cyan]║\n║ [yellow][+] [green]{text}' if border else f'\n[yellow][+] [green]{text}')
-
-
-def print_data(text: str | dict) -> None:
-    data = (f'[cyan]║[/cyan] ' + str(json.dumps(text, indent=4, default=str))).split('\n')
-    data_bordered: str = f'\n[cyan]║[/cyan] '.join(data)
-    console.print(data_bordered, highlight=False)
-
-
-def print_error(error: str, border: bool = False) -> None:
-    console.print(f'[cyan]║[red] {error}' if border else f'[red]{error}')
-
-
-def print_file_headers() -> None:
-    console.print(LS_STRING.format("Size", "Last Modified", "Type", "Read", "File Name"))
-
-
-def print_file(file: File) -> None:
-    console.print(LS_STRING.
-                  format(file.size,
-                         file.last_modified,
-                         file.type,
-                         file.is_readable,
-                         file.name),
-                  highlight=False
-                  )
+    def print_file(self, file: File) -> None:
+        console.print(
+            self.__ls_string.format(file.size, file.last_modified, file.type, file.is_readable, file.name),
+            highlight=False
+        )
 
 
 if __name__ == '__main__':
