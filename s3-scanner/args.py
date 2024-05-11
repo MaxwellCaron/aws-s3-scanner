@@ -45,7 +45,7 @@ def parse_args():
 
     parser.add_argument(
         "--no-border",
-        action="store_true",
+        action="store_false",
         help="Removes pretty bordering for easy copy and paste."
     )
 

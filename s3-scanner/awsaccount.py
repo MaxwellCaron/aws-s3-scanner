@@ -1,5 +1,5 @@
 import boto3
-from botocore.exceptions import ProfileNotFound
+from botocore.exceptions import ProfileNotFound, ClientError
 
 
 def resolve_aws_account(
@@ -45,16 +45,23 @@ class AWSAccount:
         self.secret_key = secret_key
         self.session_token = session_token
         self.region = region
-        self.session = self.get_session()
-        self.name = self.get_name()
+        self.session = self._create_session()
+        self.name = self._get_name()
 
-    def get_session(self):
+    def _create_session(self):
         session = boto3.Session(
             aws_access_key_id=self.access_key,
             aws_secret_access_key=self.secret_key,
+            aws_session_token=self.session_token,
+            region_name=self.region
         )
         return session
 
-    def get_name(self):
-        response = self.session.client("sts").get_caller_identity()
-        return response["Arn"].split('/')[-1]
+    def _get_name(self):
+        try:
+            response = self.session.client("sts").get_caller_identity()
+            arn = response["Arn"]
+            return arn.split("/")[-1]
+        except ClientError:
+            return "Unknown"
+
