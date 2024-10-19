@@ -11,10 +11,12 @@ def resolve_aws_account(
 ):
     if access_key or secret_key or session_token:
         account = AWSAccount(access_key, secret_key, session_token, region)
-    else:
+    elif profile:
         account = get_account_from_profile(profile)
         if region:
             account.region = region
+    else:
+        account = None
 
     return account
 

@@ -1,4 +1,3 @@
-import argparse
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -29,10 +28,10 @@ class File:
         self.key: str = file_info['Key']
         self.bytes_size: int = file_info['Size']
         self.size: str = naturalsize(self.bytes_size) if self.bytes_size > 0 else ''
-        self.last_modified: str = file_info['LastModified'].strftime("%b %d %H:%M")
+        self.last_modified: str = file_info['LastModified'].strftime("%b %d %Y")
         self.type: str = self.get_type()
         self.name: str = self.get_name()
-        self.is_readable: str = ' x' if self.is_file_readable() else ''
+        self.is_readable: str = ' ✓' if self.is_file_readable() else ''
         self.directory: str = self.__bucket + '/' + '/'.join(self.key.split('/')[:-1])
 
     def get_type(self) -> str:
@@ -42,7 +41,11 @@ class File:
         :return: File type
         """
         file_name_parts = self.key.split('.')
-        return file_name_parts[-1].lower() if len(file_name_parts) > 1 else 'dir'
+        last_part = file_name_parts[-1]
+
+        if len(file_name_parts) > 1:
+            return last_part.lower()
+        return 'dir' if last_part.endswith('/') else 'file'
 
     def get_name(self) -> str:
         """
@@ -412,7 +415,7 @@ def output_directory(file_path: str) -> str:
     Check if a directory exists in the current directory.
 
     :param file_path: The name of the directory to check
-    :return: True if the directory exists, False otherwise
+    :return: Output file path
     """
     current_directory = os.getcwd()
     directory_path = os.path.join(current_directory, file_path)
@@ -451,7 +454,7 @@ def authenticated_account() -> awsaccount.AWSAccount | None:
             session_token=args.session_token,
             region=args.region,
         )
-    except awsaccount.AccountError:
+    except (awsaccount.AccountError, AttributeError):
         return
 
     return account

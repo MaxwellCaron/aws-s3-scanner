@@ -22,7 +22,9 @@ def parse_args():
 
     parser.add_argument(
         "--profile",
-        default="default",
+        nargs="?",
+        const="default",
+        default=None,
         help="AWS profile to use in requests."
     )
 
