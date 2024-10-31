@@ -3,16 +3,19 @@ import json
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import Completer, Completion, CompleteEvent
 from prompt_toolkit.document import Document
+from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TransferSpeedColumn, DownloadColumn
 from rich.prompt import Prompt
-
 from main import File
 
 # https://github.com/carlospolop/PEASS-ng/blob/master/linPEAS/builder/linpeas_parts/linpeas_base.sh
 # ╠ ╣ ═ ╔ ╗ ╚ ╝ ║
 
 console = Console()
+style = Style.from_dict({
+            'border': 'ansicyan'
+        })
 BLACKLISTED_EXTENSIONS = [
     "ram", "3gp", "3gpp", "3g2", "3gpp2", "aac", "adts", "loas", "ass", "au",
     "snd", "mp3", "mp2", "opus", "aif", "aifc", "aiff", "ra", "wav", "avif",
@@ -54,11 +57,12 @@ def download_prompt(readable_file_names: list[str]) -> list[str] | None:
     :param readable_file_names: List of file/folder names to prompt for auto-completion.
     :return: List of user's arguments if any, None otherwise
     """
-    download_input = Prompt.ask("\nWould you like to download any of the readable files?", choices=["y", "n"],
-                                default="n")
+    download_input = Prompt.ask("[cyan]║\n║[/cyan] Would you like to download any of the readable files?", choices=["y", "n"],
+                                default="n", console=console)
 
     if download_input == 'y':
-        files = prompt("File(s): ", completer=MyCompleter(readable_file_names))
+        files = prompt([('class:border', '║'), ('', ' File(s): ')], completer=MyCompleter(readable_file_names), style=style)
+        console.print(f'[cyan]║')
         return files.split()
     else:
         return
@@ -71,13 +75,12 @@ def get_progress_bar() -> Progress:
     :return: Stylized progress bar
     """
     progress = Progress(
-        "[progress.description]{task.description}",
+        "[cyan]║[/cyan] [progress.description]{task.description}",
         BarColumn(),
         "[progress.percentage]{task.percentage:>3.0f}%",
         "•",
         DownloadColumn(),
-        "•",
-        TransferSpeedColumn()
+        console=console
     )
 
     return progress

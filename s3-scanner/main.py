@@ -339,7 +339,7 @@ def download(_client: BaseClient, bucket_name: str, readable_dict: dict) -> None
                 file = readable_dict[file_printable]
                 to_download.append(file)
             except KeyError:
-                Format.print_error(f"{file_printable} not found.")
+                Format.print_error(f"{file_printable} not found.", border=True)
                 pass
 
         for file in to_download:
